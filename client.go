@@ -627,6 +627,60 @@ func (fs *Share) Rename(oldpath, newpath string) error {
 	return nil
 }
 
+// Link mimics os.Link: it makes newpath a hard link to the file at
+// oldpath, on the same share. The server refuses where its file system
+// has no hard links, as with STATUS_NOT_SUPPORTED; newpath must not exist.
+func (fs *Share) Link(oldpath, newpath string) error {
+	oldpath = normPath(oldpath)
+	newpath = normPath(newpath)
+
+	if err := validatePath("link from", oldpath, false); err != nil {
+		return err
+	}
+
+	if err := validatePath("link to", newpath, false); err != nil {
+		return err
+	}
+
+	create := &smb2.CreateRequest{
+		SecurityFlags:        0,
+		RequestedOplockLevel: smb2.SMB2_OPLOCK_LEVEL_NONE,
+		ImpersonationLevel:   smb2.Impersonation,
+		SmbCreateFlags:       0,
+		DesiredAccess:        smb2.FILE_WRITE_ATTRIBUTES | smb2.SYNCHRONIZE,
+		FileAttributes:       smb2.FILE_ATTRIBUTE_NORMAL,
+		ShareAccess:          smb2.FILE_SHARE_READ | smb2.FILE_SHARE_WRITE | smb2.FILE_SHARE_DELETE,
+		CreateDisposition:    smb2.FILE_OPEN,
+		CreateOptions:        smb2.FILE_NON_DIRECTORY_FILE | smb2.FILE_OPEN_REPARSE_POINT,
+		Mapping:              fs.mapping,
+	}
+
+	f, err := fs.createFile(oldpath, create, false)
+	if err != nil {
+		return &os.LinkError{Op: "link", Old: oldpath, New: newpath, Err: err}
+	}
+
+	info := &smb2.SetInfoRequest{
+		FileInfoClass:         smb2.FileLinkInformation,
+		AdditionalInformation: 0,
+		Input: &smb2.FileLinkInformationType2Encoder{
+			ReplaceIfExists: 0,
+			RootDirectory:   0,
+			FileName:        newpath,
+			Mapping:         fs.mapping,
+		},
+	}
+
+	err = f.setInfo(info)
+	if e := f.close(); err == nil {
+		err = e
+	}
+	if err != nil {
+		return &os.LinkError{Op: "link", Old: oldpath, New: newpath, Err: err}
+	}
+	return nil
+}
+
 // Symlink mimics os.Symlink.
 // This API should work on latest Windows and latest MacOS.
 // However it may not work on Linux because Samba doesn't support reparse point well.

@@ -585,6 +585,40 @@ func TestIsXXX(t *testing.T) {
 	}
 }
 
+func TestLink(t *testing.T) {
+	if fs == nil {
+		t.Skip()
+	}
+	testDir := fmt.Sprintf("testDir-%d-TestLink", os.Getpid())
+	err := fs.Mkdir(testDir, 0755)
+	require.NoError(t, err)
+	defer func() {
+		_ = fs.RemoveAll(testDir)
+	}()
+
+	data := []byte("testContent")
+	err = fs.WriteFile(testDir+`\old`, data, 0644)
+	require.NoError(t, err)
+
+	err = fs.Link(testDir+`\old`, testDir+`\new`)
+	require.NoError(t, err)
+
+	actualData, err := fs.ReadFile(testDir + `\new`)
+	require.NoError(t, err)
+	require.Equal(t, data, actualData)
+
+	// Both names stay, sharing the data.
+	err = fs.WriteFile(testDir+`\old`, []byte("changed"), 0644)
+	require.NoError(t, err)
+	actualData, err = fs.ReadFile(testDir + `\new`)
+	require.NoError(t, err)
+	require.Equal(t, []byte("changed"), actualData)
+
+	// An existing name is not replaced.
+	err = fs.Link(testDir+`\old`, testDir+`\new`)
+	require.Error(t, err)
+}
+
 func TestRename(t *testing.T) {
 	if fs == nil {
 		t.Skip()
